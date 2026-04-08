@@ -4,7 +4,7 @@ services:
     image: docker.io/jenkins/jenkins:lts
     user: "1003:1003"
     ports:
-      - 0.0.0.0:8081:${JENKINS_PORT_INTERNAL}
+      - 0.0.0.0:${JENKINS_PORT_EXTERNAL}:${JENKINS_PORT_INTERNAL}
     volumes:
       - ./service/jenkins_home:/var/jenkins_home
     environment:
