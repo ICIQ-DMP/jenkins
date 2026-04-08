@@ -48,29 +48,29 @@ services:
 
 
 
-  nginx:
-    image: nginx:stable
-    container_name: nginx-firewall
-    ports:
-      - "0.0.0.0:${FIREWALL_PORT_EXTERNAL}:${FIREWALL_PORT_INTERNAL}"
-    volumes:
-      - ./service/nginx_conf/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./service/nginx_conf/proxy_params:/etc/nginx/proxy_params:ro
-      - ./service/nginx_logs:/var/log/nginx
-    depends_on:
-      jenkins:
-        condition: service_healthy
-      agent:
-        condition: service_healthy
-    restart: always
-    networks:
-      - justicier_net
-    healthcheck:
-      test: curl -fsSL http://localhost:8080/healthz || exit 1
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
+##  nginx:
+#    image: nginx:stable
+#    container_name: nginx-firewall
+#    ports:
+#      - "0.0.0.0:${FIREWALL_PORT_EXTERNAL}:${FIREWALL_PORT_INTERNAL}"
+#    volumes:
+#      - ./service/nginx_conf/nginx.conf:/etc/nginx/nginx.conf:ro
+#      - ./service/nginx_conf/proxy_params:/etc/nginx/proxy_params:ro
+#      - ./service/nginx_logs:/var/log/nginx
+#    depends_on:
+#      jenkins:
+#        condition: service_healthy
+#      agent:
+#        condition: service_healthy
+#    restart: always
+#    networks:
+#      - justicier_net
+#    healthcheck:
+#      test: curl -fsSL http://localhost:8080/healthz || exit 1
+#      interval: 30s
+#      timeout: 5s
+#      retries: 3
+#
 
 
 networks:
