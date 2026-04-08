@@ -9,12 +9,13 @@ USER="Justicier"
 API_TOKEN="$(cat $PROJECT_FOLDER/secrets/JENKINS_API_TOKEN)"
 JOB="run-justicier"
 BUILD_TOKEN="$(cat $PROJECT_FOLDER/secrets/JENKINS_BUILD_TOKEN)"
-ID_VALUE="16"
+ID_VALUE="33"
 
 # Step 1: Get crumb
 request=$(curl -s -u "$USER:$API_TOKEN" "$JENKINS_URL/crumbIssuer/api/json")
 echo $request
 CRUMB=$(echo "$request" | jq -r '.crumb')
+
 
 # Step 2: Trigger build with crumb and parameters
 curl -v -X POST "$JENKINS_URL/job/$JOB/buildWithParameters?token=$BUILD_TOKEN&ID=$ID_VALUE&cause=automated+workflow" \
