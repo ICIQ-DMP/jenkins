@@ -1,66 +1,194 @@
-# auto-justifications
-Program that implements an automation over the justification of personnel payments (and related documents) in ICIQ. 
-Originally, this operation was performed manually with questionable efficiency by the HHRR personnel.  
+<a id="readme-top"></a>
 
-# Components
-* Microsoft 365 list: User interface for interacting with the system. Validates parameters, gathers parameters, shows 
-output, keeps historical
-* Microsoft Sharepoint: Secure bucket to store the input and output data, which consists in personal data. 
-* A3: Indirectly the input data is coming from this service. We will try to skip the step of someone from HHRR 
-periodically downloading this data. For that we will need API access. 
-* GitHub ICIQ DMP organization: To store the code and secrets of these projects.
-* GitHub Actions: To manage and implement workflow.
-* GitHub Actions self-hosted runner: Runs in the echempad server. This server is deployed in ICIQ hardware. 
+<!-- PROJECT SHIELDS -->
+[![GPLv3 License][license-shield]][license-url]
 
-# Workflow
+<!-- PROJECT LOGO -->
+<br />
+<div align="center">
+  <h3 align="center">ICIQ DMP Jenkins</h3>
 
+  <p align="center">
+    Shared Jenkins + nginx reverse-proxy stack used to trigger and run ICIQ DMP automations
+    <br />
+    <a href="https://github.com/ICIQ-DMP/jenkins/issues">Report Bug</a>
+    &middot;
+    <a href="https://github.com/ICIQ-DMP/jenkins/issues">Request Feature</a>
+  </p>
+</div>
 
+<!-- TABLE OF CONTENTS -->
+<details>
+  <summary>Table of Contents</summary>
+  <ol>
+    <li>
+      <a href="#about-the-project">About The Project</a>
+      <ul>
+        <li><a href="#architecture">Architecture</a></li>
+        <li><a href="#built-with">Built With</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#getting-started">Getting Started</a>
+      <ul>
+        <li><a href="#prerequisites">Prerequisites</a></li>
+        <li><a href="#installation">Installation</a></li>
+      </ul>
+    </li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#configuration">Configuration</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#contributing">Contributing</a></li>
+    <li><a href="#license">License</a></li>
+    <li><a href="#contact">Contact</a></li>
+  </ol>
+</details>
 
-# Usage 
-```shell
-sudo apt-get install -y python3 git  # Or similar to install python and git
-git clone https://github.com/ICIQ-DMP/auto-justifications
-cd auto-justifications
-python3 -m venv venv
-./venv/bin/pip3 install -r requirements.txt
-./venv/bin/python3 ./src/main.py --naf 08/04135154/70 --begin 2023-01-01 --end 2025-05-31 --author pepito@iciq.es --input local
+<!-- ABOUT THE PROJECT -->
+## About The Project
+
+This repository provisions the Jenkins instance that ICIQ DMP automations run and trigger their jobs on.
+
+It used to live inside the `auto-justifications` ("Justicier") project as a single Jenkins container coupled to
+that one automation. As more automations started depending on the same Jenkins, it was extracted into its own
+repository so the infrastructure (Jenkins + reverse proxy) can be versioned, deployed, and reasoned about
+independently of any single automation's job code, which now lives in each automation's own repository.
+
+### Architecture
+
+The stack is two containers, wired together with Docker Compose:
+
+* **`jenkins`** — `jenkins/jenkins:lts`, holding all job definitions and running builds. Not published directly;
+  only reachable from `nginx` over the internal Compose network.
+* **`nginx`** — reverse proxy and the only container with a published port. It deliberately exposes a narrow
+  allowlist instead of the whole Jenkins UI:
+  * `GET /crumbIssuer/api/json` — CSRF crumb issuance, needed before triggering a build.
+  * `POST /job/<any-job>/buildWithParameters` — trigger any job by name. This is what automations call remotely.
+  * `/` (the full Jenkins UI) — restricted to an admin IP allowlist (`NGINX_ADMIN_IP`), everything else denied.
+  * `/healthz` — used by the container healthcheck.
+
+nginx's config is not committed as a static file: `service/nginx/conf/nginx.conf` and `proxy_params` are
+templates containing `${PLACEHOLDER}` variables (server name, admin IP, listen port, Jenkins upstream). At
+container start, nginx's own `docker-entrypoint.d/20-envsubst-on-templates.sh` renders them into the running
+config using the values Compose reads from `.env`. See [Configuration](#configuration).
+
+### Built With
+
+* [Jenkins](https://www.jenkins.io/) (`jenkins/jenkins:lts`)
+* [nginx](https://nginx.org/) (`nginx:stable`)
+* [Docker Compose](https://docs.docker.com/compose/)
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+<!-- GETTING STARTED -->
+## Getting Started
+
+### Prerequisites
+
+* Docker and the Docker Compose plugin
+* A Unix host user/group to own `service/jenkins_home` (the Jenkins container runs as this `HOST_UID:HOST_GID`, not root)
+
+### Installation
+
+1. Clone the repo
+   ```sh
+   git clone https://github.com/ICIQ-DMP/jenkins.git
+   cd jenkins
+   ```
+2. Copy the environment template and adjust it for your deployment
+   ```sh
+   cp .env.example .env
+   ```
+3. Bring the stack up
+   ```sh
+   docker compose up -d
+   ```
+   `service/jenkins_home` and `service/nginx_logs` are created automatically on first run (bind mounts) and are
+   gitignored, since they're runtime state, not configuration.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+<!-- USAGE EXAMPLES -->
+## Usage
+
+Automations trigger their Jenkins job remotely through nginx: fetch a CSRF crumb, then POST to
+`buildWithParameters` with the job's build token and parameters. `scripts/run_workflow.sh` is a runnable example
+of that flow:
+
+```sh
+./scripts/run_workflow.sh <job-name> [param=value ...]
+
+# e.g.
+./scripts/run_workflow.sh run-justicier ID=33 cause=automated+workflow
 ```
 
-# Some notes
-The code is not my best code. I have many instructions and functions that repeat because they are not designed properly. 
-But it works. If you have to maintain this software start by refactoring and defining function that can be reused. Work 
-using data models and abstractions. There are many already created, but they can be improved, refactored and expanded to
-include more abstractions such as a PDF file, the different types of documents that we are working with or some metadata
-structures such as the data structure for the requests.
+It reads `NGINX_SERVER_NAME` and `JENKINS_API_USER` from `.env`, and the actual credentials from `secrets/`
+(gitignored, one value per file): `JENKINS_API_TOKEN`, `JENKINS_BUILD_TOKEN`. Only real credentials live under
+`secrets/` — everything else belongs in `.env`, so the token files stay easy to swap for a Vault- or
+Docker-secrets-backed mount later without touching the rest of the configuration.
 
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
+<!-- CONFIGURATION -->
+## Configuration
 
-```
-docker run \
-  -v $(pwd)/service/onedrive_conf:/onedrive/conf \
-  -v $(pwd)/service/onedrive_data:/onedrive/data \
-  -v $(pwd)/service/onedrive_logs:/onedrive/logs \
-  -e ONEDRIVE_DOWNLOADONLY=1 \
-  -e ONEDRIVE_CLEANUPLOCAL=1 \
-  -l io.containers.autoupdate=image \
-  --restart unless-stopped \
-  --health-cmd "sh -c '[ -s /onedrive/conf/items.sqlite3-wal ]'" \
-  --health-interval 60s \
-  --health-retries 2 \
-  --health-timeout 5s \
-  -it docker.io/driveone/onedrive:edge
-```
+All configuration is environment-driven via `.env` (see `.env.example`):
 
-# Notes
-```
-ssh-keygen -t ed25519 -C "jenkins@agent" -N "" -f $AGENT_SSH_PRIVATE_KEY_PATH
-```
+| Variable                 | Purpose                                                              |
+|---------------------------|-----------------------------------------------------------------------|
+| `JENKINS_PORT_EXTERNAL`  | Host port Jenkins is published on (not routed through nginx)         |
+| `JENKINS_PORT_INTERNAL`  | Port Jenkins listens on inside its container                         |
+| `FIREWALL_PORT_EXTERNAL` | Host port nginx is published on — the actual public entrypoint       |
+| `FIREWALL_PORT_INTERNAL` | Port nginx listens on inside its container                           |
+| `HOST_UID` / `HOST_GID`   | Host user/group that owns `service/jenkins_home`                     |
+| `NGINX_SERVER_NAME`      | `server_name` nginx serves and validates; also the host `scripts/run_workflow.sh` targets |
+| `NGINX_ADMIN_IP`         | Single IP allowed to reach the full Jenkins UI through nginx         |
+| `JENKINS_API_USER`       | Jenkins username `scripts/run_workflow.sh` authenticates as (not sensitive by itself) |
 
-proxy_set_header X-Forwarded-Proto \$scheme;
+Actual credentials (`JENKINS_API_TOKEN`, `JENKINS_BUILD_TOKEN`) are kept out of `.env` and read from `secrets/`
+instead — one value per file — so they can't leak through something that dumps `.env` or `docker compose config`
+wholesale, and so they map directly onto a Vault- or Docker-secrets-style file mount if one is introduced later.
 
-### Reauth onedrive for token
-docker compose run --entrypoint "onedrive --reauth" -v ./service/onedrive_conf:/onedrive/conf onedrive 
-cp ./service/onedrive_conf/refresh_token secrets/ONEDRIVE_TOKEN
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
+<!-- ROADMAP -->
+## Roadmap
 
-./venv/bin/python src/main.py --id 159 --input-location service/onedrive_data/Documentació\ Nomines\,\ Seguretat\ Social/input/
+- [ ] Restore CI/build-agent capability (a previous SSH `agent` container was removed during the extraction from
+      `auto-justifications` and has not been replaced yet)
+- [ ] Document the process for onboarding a new automation's job onto this shared Jenkins
+
+See the [open issues](https://github.com/ICIQ-DMP/jenkins/issues) for the full list.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+<!-- CONTRIBUTING -->
+## Contributing
+
+1. Fork the repo
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+<!-- LICENSE -->
+## License
+
+Distributed under the GPLv3 License. See `LICENSE` for more information.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+<!-- CONTACT -->
+## Contact
+
+ICIQ DMP — digitalitzacio@iciq.es
+
+Project Link: [https://github.com/ICIQ-DMP/jenkins](https://github.com/ICIQ-DMP/jenkins)
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+<!-- MARKDOWN LINKS & IMAGES -->
+[license-shield]: https://img.shields.io/badge/license-GPLv3-blue.svg
+[license-url]: https://github.com/ICIQ-DMP/jenkins/blob/master/LICENSE

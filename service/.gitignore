@@ -1,2 +1,7 @@
 *
 !.gitignore
+
+# nginx reverse-proxy config templates are code, not runtime state - track them.
+!nginx
+!nginx/conf
+!nginx/conf/*
